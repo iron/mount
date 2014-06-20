@@ -8,7 +8,8 @@ use iron::middleware::{Status, Continue, Unwind};
 pub struct Mount<F> {
     route: String,
     matches: Regex,
-    iron: Iron<F>
+    iron: Iron<F>,
+    terminator: Status
 }
 
 impl<F> Mount<F> {
@@ -16,7 +17,17 @@ impl<F> Mount<F> {
         Mount {
             route: route.to_string(),
             iron: iron,
-            matches: to_regex(route)
+            matches: to_regex(route),
+            terminator: Unwind
+        }
+    }
+
+    pub fn non_terminal(route: &str, iron: Iron<F>) -> Mount<F> {
+        Mount {
+            route: route.to_string(),
+            iron: iron,
+            matches: to_regex(route),
+            terminator: Continue
         }
     }
 }
@@ -67,13 +78,24 @@ impl<F: Furnace> Middleware for Mount<F> {
             _ => { fail!("The impossible happened."); }
         }
 
-        // We dispatched the request, so Unwind.
-        Unwind
+        // We dispatched the request, so do our final action.
+        self.terminator
     }
 }
 
 #[macro_export]
 macro_rules! mount(
+    ($route:expr, $midware:expr) => {
+        {
+            let mut subserver: ServerT = Iron::new();
+            subserver.smelt($midware);
+            mount::Mount::non_terminal($route, subserver)
+        }
+    }
+)
+
+#[macro_export]
+macro_rules! mount_terminal(
     ($route:expr, $midware:expr) => {
         {
             let mut subserver: ServerT = Iron::new();

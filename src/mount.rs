@@ -8,7 +8,8 @@ use iron::middleware::{Status, Continue, Unwind};
 pub struct Mount<F> {
     route: String,
     matches: Regex,
-    iron: Iron<F>
+    iron: Iron<F>,
+    terminator: Option<Status>
 }
 
 impl<F> Mount<F> {
@@ -16,7 +17,26 @@ impl<F> Mount<F> {
         Mount {
             route: route.to_string(),
             iron: iron,
-            matches: to_regex(route)
+            matches: to_regex(route),
+            terminator: Some(Unwind)
+        }
+    }
+
+    pub fn non_terminal(route: &str, iron: Iron<F>) -> Mount<F> {
+        Mount {
+            route: route.to_string(),
+            iron: iron,
+            matches: to_regex(route),
+            terminator: Some(Continue)
+        }
+    }
+
+    pub fn filter(route: &str, iron: Iron<F>) -> Mount<F> {
+        Mount {
+            route: route.to_string(),
+            iron: iron,
+            matches: to_regex(route),
+            terminator: None
         }
     }
 }
@@ -56,7 +76,8 @@ impl<F: Furnace> Middleware for Mount<F> {
         } // Previous borrow of req ends here.
 
         // So we can borrow it again here.
-        self.iron.furnace.forge(req, res, Some(alloy));
+        // We also take the status here, in case we are using conditional termination.
+        let status = self.iron.furnace.forge(req, res, Some(alloy));
 
         // And repair the damage here, for future middleware
         match req.request_uri {
@@ -67,8 +88,11 @@ impl<F: Furnace> Middleware for Mount<F> {
             _ => { fail!("The impossible happened."); }
         }
 
-        // We dispatched the request, so Unwind.
-        Unwind
+        // We dispatched the request, so do our final action.
+        match self.terminator {
+            Some(status) => status,
+            None         => status
+        }
     }
 }
 
@@ -78,7 +102,29 @@ macro_rules! mount(
         {
             let mut subserver: ServerT = Iron::new();
             subserver.smelt($midware);
+            mount::Mount::non_terminal($route, subserver)
+        }
+    }
+)
+
+#[macro_export]
+macro_rules! mount_terminal(
+    ($route:expr, $midware:expr) => {
+        {
+            let mut subserver: ServerT = Iron::new();
+            subserver.smelt($midware);
             mount::Mount::new($route, subserver)
+        }
+    }
+)
+
+#[macro_export]
+macro_rules! mount_filter(
+    ($route:expr, $midware:expr) => {
+        {
+            let mut subserver: ServerT = Iron::new();
+            subserver.smelt($midware);
+            mount::Mount::filter($route, subserver)
         }
     }
 )

@@ -15,16 +15,9 @@ impl<V> Matcher<V> {
     }
 
     pub fn find(&self, key: &[String]) -> Option<&V> {
-        let mut this = self;
-
-        for string in key.iter() {
-            match this.children.find(string) {
-                Some(child) => this = child,
-                None => return None
-            }
-        }
-
-        this.value.as_ref()
+        key.iter().fold(Some(self), |this, string| {
+            this.and_then(|th| th.children.find(string))
+        }).and_then(|x| x.value.as_ref())
     }
 }
 

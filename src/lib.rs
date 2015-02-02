@@ -1,7 +1,8 @@
 #![crate_name = "mount"]
 #![deny(missing_docs)]
 #![deny(warnings)]
-#![allow(unstable)]
+
+#![feature(core, collections, path)]
 
 //! `Mount` provides mounting middleware for the Iron framework.
 

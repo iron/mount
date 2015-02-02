@@ -1,6 +1,7 @@
 use std::error::Error;
 use iron::{Handler, Response, Request, IronResult, IronError, Url};
 use iron::typemap;
+use iron::status;
 use sequence_trie::SequenceTrie;
 use std::fmt;
 
@@ -71,7 +72,7 @@ impl Mount {
 }
 
 impl Handler for Mount {
-    fn call(&self, req: &mut Request) -> IronResult<Response> {
+    fn handle(&self, req: &mut Request) -> IronResult<Response> {
         // Find the matching handler.
         let matched = {
             // Extract the request path.
@@ -89,7 +90,7 @@ impl Handler for Mount {
             // Search the Trie for the nearest most specific match.
             match self.inner.get_ancestor(key) {
                 Some(matched) => matched,
-                None => return Err(Box::new(NoMatch) as IronError)
+                None => return Err(IronError::new(NoMatch, status::NotFound))
             }
         };
 
@@ -107,7 +108,7 @@ impl Handler for Mount {
         // did not include a trailing slash is more important than providing a non-empty list.
         req.url.path = req.url.path.as_slice()[matched.length..].to_vec();
 
-        let res = matched.handler.call(req);
+        let res = matched.handler.handle(req);
 
         // Reverse the URL munging, for future middleware.
         req.url = match req.extensions.get::<OriginalUrl>() {

@@ -2,9 +2,7 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 
-#![feature(core)]
-#![feature(collections)]
-#![feature(path)]
+#![feature(core, collections, path)]
 
 //! `Mount` provides mounting middleware for the Iron framework.
 

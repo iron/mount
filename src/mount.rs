@@ -90,7 +90,7 @@ impl Handler for Mount {
             // Search the Trie for the nearest most specific match.
             match self.inner.get_ancestor(key) {
                 Some(matched) => matched,
-                None => return Err(IronError::new(NoMatch, status::Ok))
+                None => return Err(IronError::new(NoMatch, status::NotFound))
             }
         };
 

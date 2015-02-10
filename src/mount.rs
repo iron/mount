@@ -5,9 +5,14 @@ use sequence_trie::SequenceTrie;
 use std::fmt;
 
 /// Exposes the original, unmodified path to be stored in `Request::extensions`.
-#[derive(Copy)]
+#[derive(Debug, Copy)]
 pub struct OriginalUrl;
 impl typemap::Key for OriginalUrl { type Value = Url; }
+
+/// Exposes the mounting path, so a request can know its own relative address.
+#[derive(Debug, Copy)]
+pub struct VirtualRoot;
+impl typemap::Key for VirtualRoot { type Value = Url; }
 
 /// `Mount` is a simple mounting middleware.
 ///
@@ -25,7 +30,7 @@ pub struct Mount {
 }
 
 struct Match {
-    handler: Box<Handler + Send + Sync>,
+    handler: Box<Handler>,
     length: usize
 }
 
@@ -57,40 +62,43 @@ impl Mount {
     /// For a given request, the *most specific* handler will be selected.
     ///
     /// Existing handlers on the same route will be overwritten.
-    pub fn mount<H: Handler>(&mut self, route: &str, handler: H) -> &mut Mount {
+    pub fn on<H: Handler>(&mut self, route: &str, handler: H) -> &mut Mount {
         // Parse the route into a list of strings. The unwrap is safe because strs are UTF-8.
-        let key: Vec<String> = Path::new(route).str_components().map(|s| s.unwrap().to_string()).collect();
+        let key = Path::new(route).str_components()
+            .map(|s| s.unwrap().to_string()).collect::<Vec<_>>();
 
         // Insert a match struct into the trie.
         self.inner.insert(key.as_slice(), Match {
-            handler: Box::new(handler) as Box<Handler + Send + Sync>,
+            handler: Box::new(handler) as Box<Handler>,
             length: key.len()
         });
         self
+    }
+
+    /// The old way to mount handlers.
+    #[deprecated = "use .on instead"]
+    pub fn mount<H: Handler>(&mut self, route: &str, handler: H) -> &mut Mount {
+        self.on(route, handler)
     }
 }
 
 impl Handler for Mount {
     fn handle(&self, req: &mut Request) -> IronResult<Response> {
+        let original = req.url.path.clone();
+
+        // If present, remove the trailing empty string (which represents a trailing slash).
+        // If it isn't removed the path will never match anything, because
+        // Path::str_components ignores trailing slashes and will never create routes
+        // ending in "".
+        let mut root = original.as_slice();
+        while root.last().map(|s| &**s) == Some("") {
+            root = &root[..root.len() - 1];
+        }
+
         // Find the matching handler.
-        let matched = {
-            // Extract the request path.
-            let path = req.url.path.as_slice();
-
-            // If present, remove the trailing empty string (which represents a trailing slash).
-            // If it isn't removed the path will never match anything, because
-            // Path::str_components ignores trailing slashes and will never create routes
-            // ending in "".
-            let key = match path.last() {
-                Some(s) if s.is_empty() => &path[..path.len() - 1],
-                _ => path
-            };
-
-            // Search the Trie for the nearest most specific match.
-            match self.inner.get_ancestor(key) {
-                Some(matched) => matched,
-                None => return Err(IronError::new(NoMatch, status::NotFound))
-            }
+        let matched = match self.inner.get_ancestor(root) {
+            Some(matched) => matched,
+            None => return Err(IronError::new(NoMatch, status::NotFound))
         };
 
         // We have a match, so fire off the child.
@@ -98,27 +106,40 @@ impl Handler for Mount {
         // into the extensions as the "original url".
         let is_outer_mount = !req.extensions.contains::<OriginalUrl>();
         if is_outer_mount {
+            let mut root_url = req.url.clone();
+            root_url.path = root.to_vec();
+
             req.extensions.insert::<OriginalUrl>(req.url.clone());
+            req.extensions.insert::<VirtualRoot>(root_url);
+        } else {
+            req.extensions.get_mut::<VirtualRoot>().map(|old| {
+                old.path.push_all(root);
+            });
         }
 
-        // Remove the prefix from the request's path before passing it to the mounted handler.
-        // If the prefix is entirely removed and no trailing slash was present, the new path
-        // will be the empty list. For the purposes of redirection, conveying that the path
-        // did not include a trailing slash is more important than providing a non-empty list.
+        // Remove the prefix from the request's path before passing it to the mounted
+        // handler. If the prefix is entirely removed and no trailing slash was present,
+        // the new path will be the empty list.
+        //
+        // For the purposes of redirection, conveying that the path did not include
+        // a trailing slash is more important than providing a non-empty list.
         req.url.path = req.url.path.as_slice()[matched.length..].to_vec();
 
         let res = matched.handler.handle(req);
 
         // Reverse the URL munging, for future middleware.
-        req.url = match req.extensions.get::<OriginalUrl>() {
-            Some(original) => original.clone(),
-            None => panic!("OriginalUrl unexpectedly removed from req.extensions.")
-        };
+        req.url.path = original.clone();
 
         // If this mount middleware is the outermost mount middleware,
         // remove the original url from the extensions map to prevent leakage.
         if is_outer_mount {
             req.extensions.remove::<OriginalUrl>();
+            req.extensions.remove::<VirtualRoot>();
+        } else {
+            req.extensions.get_mut::<VirtualRoot>().map(|old| {
+                let old_len = old.path.len();
+                old.path.truncate(old_len - root.len());
+            });
         }
 
         res

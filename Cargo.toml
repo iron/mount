@@ -12,3 +12,8 @@ license = "MIT"
 iron = "*"
 url = "*"
 sequence_trie = "*"
+
+[dev-dependencies]
+stainless = "*"
+iron-test = "*"
+

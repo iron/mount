@@ -58,8 +58,10 @@ impl Mount {
     ///
     /// Existing handlers on the same route will be overwritten.
     pub fn mount<H: Handler>(&mut self, route: &str, handler: H) -> &mut Mount {
-        // Parse the route into a list of strings. The unwrap is safe because strs are UTF-8.
-        let key: Vec<String> = Path::new(route).str_components().map(|s| s.unwrap().to_string()).collect();
+        // Parse the route into a list of strings.
+        let key: Vec<String> = route.split('/').filter_map(|component| {
+            if component.is_empty() { None } else { Some(component.to_string()) }
+        }).collect();
 
         // Insert a match struct into the trie.
         self.inner.insert(key.as_slice(), Match {

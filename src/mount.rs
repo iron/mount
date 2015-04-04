@@ -6,7 +6,7 @@ use sequence_trie::SequenceTrie;
 use std::fmt;
 
 /// Exposes the original, unmodified path to be stored in `Request::extensions`.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct OriginalUrl;
 impl typemap::Key for OriginalUrl { type Value = Url; }
 
@@ -130,4 +130,3 @@ impl Handler for Mount {
         res
     }
 }
-

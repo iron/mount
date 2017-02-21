@@ -10,4 +10,5 @@ extern crate sequence_trie;
 pub use mount::{Mount, OriginalUrl};
 
 mod mount;
+mod macros;
 

@@ -133,7 +133,14 @@ impl Handler for Mount {
             req.extensions.remove::<OriginalUrl>();
         }
 
-        res
+        // Pass back if no error occuring invoking the err, or pass to the
+        // local error handler.
+        return match res {
+            Ok(resp) => Ok(resp),
+            Err(err) => {
+                let (resp, _) = matched.handler.catch(req, err);
+                Ok(resp)
+            }
+        }
     }
 }
-
